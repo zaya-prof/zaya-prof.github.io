@@ -1,5 +1,4 @@
-﻿Sub ExportSheetsExceptSubjectInfo()
-
+Sub ExportSheetsExceptSubjectInfo()
 
     Dim wbSource As Workbook
     Dim wbTarget As Workbook
@@ -7,89 +6,77 @@
     Dim sFileName As String
     Dim sFilePath As String
 
-
     ' --- Error Handling ---
     On Error GoTo ErrorHandler
 
-
-    ' --- Set the source workbook (the active workbook) ---
-    Set wbSource = ThisWorkbook ' Use ThisWorkbook for the workbook containing the code
-
+    ' --- Set the source workbook (the workbook containing the code) ---
+    Set wbSource = ThisWorkbook
 
     ' --- Prepare the file name and path for the new .xlsx file ---
-    ' Get the full path and filename, but remove the extension
-    sFileName = Left(wbSource.FullName, InStrRev(wbSource.FullName, ".") - 1)
-    ' Add the .xlsx extension
-    sFileName = sFileName & ".xlsx"
-    sFilePath = wbSource.Path & "\" & wbSource.Name & "_Exported.xlsx" ' Alternative, creates a unique name.
-
+    sFileName = Left(wbSource.FullName, InStrRev(wbSource.FullName, ".") - 1) & ".xlsx"
+    ' Optional: Create a uniquely named file in the same directory.
+    ' sFilePath = wbSource.Path & "\" & wbSource.Name & "_Exported.xlsx"
 
     ' --- Check if the file already exists and handle accordingly ---
     If Dir(sFileName) <> "" Then
-      'Option 1: Delete the file, if we dont care about the old content
-        'Kill sFileName
+        ' Option 1: Overwrite (delete) the existing file.  Use with caution!
+        ' Kill sFileName
 
+        ' Option 2: Create a unique filename by adding a timestamp (recommended).
+        sFileName = Left(wbSource.FullName, InStrRev(wbSource.FullName, ".") - 1) & "_" & Format(Now, "yyyymmdd_hhmmss") & ".xlsx"
 
-      'Option 2: Use a different file name, e.g., add a timestamp
-      sFileName = Left(wbSource.FullName, InStrRev(wbSource.FullName, ".") - 1) & "_" & Format(Now, "yyyymmdd_hhmmss") & ".xlsx"
-
-
-      'Option 3: Prompt the user
-      Dim iResponse As Integer
-          iResponse = MsgBox("File '" & sFileName & "' already exists.  Do you want to overwrite it?", vbYesNo + vbQuestion, "File Exists")
-        If iResponse = vbNo Then
-            Exit Sub ' Exit the procedure if the user doesn't want to overwrite
-        Else
-            Kill sFileName
-        End If
-
-
+        ' Option 3: Prompt the user to overwrite.
+        ' Dim iResponse As Integer
+        ' iResponse = MsgBox("File '" & sFileName & "' already exists. Do you want to overwrite it?", vbYesNo + vbQuestion, "File Exists")
+        ' If iResponse = vbNo Then
+        '     Exit Sub ' Exit if the user doesn't want to overwrite.
+        ' Else
+        '     Kill sFileName  ' Delete the existing file.
+        ' End If
     End If
 
+    ' --- Create a new workbook (.xlsx) with a single worksheet ---
+    Set wbTarget = Workbooks.Add(xlWBATWorksheet)
 
-    ' --- Create a new workbook (.xlsx) ---
-    Set wbTarget = Workbooks.Add(xlWBATWorksheet) ' Add a new workbook with a single sheet
+    ' --- Delete the default sheet in the new workbook (cleaner export) ---
+    Application.DisplayAlerts = False ' Disable "Do you want to delete this sheet?" prompt.
+    wbTarget.Sheets(1).Delete
+    Application.DisplayAlerts = True
 
-
-    ' --- Remove the default sheet in the new workbook (cleaner export)---
-        Application.DisplayAlerts = False ' Disable "Do you want to delete this sheet?" prompt
-          wbTarget.Sheets(1).Delete ' Delete the default first sheet
-        Application.DisplayAlerts = True
-
-
-        ' --- Loop through each sheet in the source workbook ---
+    ' --- Loop through each sheet in the source workbook ---
     For Each ws In wbSource.Sheets
         ' --- Check if the sheet name is "SubjectInfo" ---
         If ws.Name <> "SubjectInfo" Then
-            ' --- Copy the sheet to the target workbook ---
+            ' --- Copy the sheet to the *end* of the target workbook ---
             ws.Copy After:=wbTarget.Sheets(wbTarget.Sheets.Count)
         End If
     Next ws
 
     ' --- Check if any sheets were actually copied ---
     If wbTarget.Sheets.Count > 0 Then
-        ' --- Save the new workbook as .xlsx ---
+        ' --- Sheets were copied: Save the new workbook as .xlsx ---
         wbTarget.SaveAs Filename:=sFileName, FileFormat:=xlOpenXMLWorkbook
 
-        ' --- Close the new workbook (optional - leave it open)---
-        wbTarget.Close SaveChanges:=False 'Close without prompting to save again.
+        ' --- Close the new workbook (without prompting to save again) ---
+        wbTarget.Close SaveChanges:=False
         MsgBox "Sheets exported to: " & vbNewLine & sFileName, vbInformation, "Export Complete"
     Else
-        ' --- No sheets were copied (all were "SubjectInfo" or source was empty) ---
-        wbTarget.Close SaveChanges:=False ' Close the empty workbook (we must close it).  It won't be saved.
+        ' --- No sheets were copied: Close the empty workbook (required) ---
+        wbTarget.Close SaveChanges:=False  ' It won't be saved.
         MsgBox "No sheets were exported because all sheets were named 'SubjectInfo' or the source workbook was empty.", vbInformation, "Export Incomplete"
     End If
 
-
-    ' --- Cleanup ---
+    ' --- Cleanup: Release object variables ---
     Set wbSource = Nothing
     Set wbTarget = Nothing
-    Exit Sub ' Exit the procedure normally
 
+    Exit Sub  ' Exit the procedure under normal circumstances.
 
+' --- Error Handler ---
 ErrorHandler:
     MsgBox "An error occurred: " & Err.Description, vbCritical, "Error"
-    If Not wbTarget Is Nothing Then  'Important - cleanup if we created a workbook, but errored before saving.
+    ' If an error occurred *after* creating the target workbook, close it without saving.
+    If Not wbTarget Is Nothing Then
         Application.DisplayAlerts = False
         wbTarget.Close SaveChanges:=False
         Application.DisplayAlerts = True
