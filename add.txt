@@ -57,7 +57,7 @@
         Application.DisplayAlerts = True
 
 
-    ' --- Loop through each sheet in the source workbook ---
+        ' --- Loop through each sheet in the source workbook ---
     For Each ws In wbSource.Sheets
         ' --- Check if the sheet name is "SubjectInfo" ---
         If ws.Name <> "SubjectInfo" Then
@@ -66,18 +66,19 @@
         End If
     Next ws
 
+    ' --- Check if any sheets were actually copied ---
+    If wbTarget.Sheets.Count > 0 Then
+        ' --- Save the new workbook as .xlsx ---
+        wbTarget.SaveAs Filename:=sFileName, FileFormat:=xlOpenXMLWorkbook
 
-    ' --- Save the new workbook as .xlsx ---
-    ' wbTarget.SaveAs Filename:=sFileName, FileFormat:=xlOpenXMLWorkbook '  .xlsx format
-
-
-    'Alternative save, to use the filepath variable
-    wbTarget.SaveAs Filename:=sFileName, FileFormat:=xlOpenXMLWorkbook
-
-
-    ' --- Close the new workbook (optional - leave it open)---
-     wbTarget.Close SaveChanges:=False 'Close without prompting to save again.  The SaveAs above already saved it.
-     MsgBox "Sheets exported to: " & vbNewLine & sFileName, vbInformation, "Export Complete"
+        ' --- Close the new workbook (optional - leave it open)---
+        wbTarget.Close SaveChanges:=False 'Close without prompting to save again.
+        MsgBox "Sheets exported to: " & vbNewLine & sFileName, vbInformation, "Export Complete"
+    Else
+        ' --- No sheets were copied (all were "SubjectInfo" or source was empty) ---
+        wbTarget.Close SaveChanges:=False ' Close the empty workbook (we must close it).  It won't be saved.
+        MsgBox "No sheets were exported because all sheets were named 'SubjectInfo' or the source workbook was empty.", vbInformation, "Export Incomplete"
+    End If
 
 
     ' --- Cleanup ---
@@ -95,6 +96,5 @@ ErrorHandler:
     End If
     Set wbSource = Nothing
     Set wbTarget = Nothing
-
 
 End Sub
