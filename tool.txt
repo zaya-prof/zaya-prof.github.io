@@ -1,0 +1,124 @@
+# --- Configuration ---
+$owner = "zaya-prof"
+$repoName = "zaya-prof.github.io" # Extracted from your repository link
+
+# Prompt for sensitive/variable information
+# For automated scripts (CI/CD), consider using environment variables for the PAT
+$personalAccessToken = Read-Host -Prompt "Enter your GitHub Personal Access Token (needs 'repo' scope)"
+$zipFilePath = Read-Host -Prompt "Enter the full path to your ZIP file (e.g., C:\path\to\your\archive.zip)"
+
+# Validate ZIP file path
+while (-not (Test-Path $zipFilePath -PathType Leaf) -or ([System.IO.Path]::GetExtension($zipFilePath).ToLower() -ne ".zip")) {
+    Write-Warning "Invalid ZIP file path or the file is not a .zip file. Please enter a valid path."
+    $zipFilePath = Read-Host -Prompt "Enter the full path to your ZIP file"
+}
+
+# Release details (can be customized)
+$defaultTagName = "v$(Get-Date -Format 'yyyy.MM.dd.HHmm')" # Default to a timestamp-based tag
+$tagNameInput = Read-Host -Prompt "Enter the tag name for the release (default: $defaultTagName)"
+$tagName = if ([string]::IsNullOrWhiteSpace($tagNameInput)) { $defaultTagName } else { $tagNameInput }
+
+$defaultReleaseName = "Release $tagName"
+$releaseNameInput = Read-Host -Prompt "Enter the name for the release (default: $defaultReleaseName)"
+$releaseName = if ([string]::IsNullOrWhiteSpace($releaseNameInput)) { $defaultReleaseName } else { $releaseNameInput }
+
+$defaultReleaseNotes = "Automated release created on $(Get-Date)."
+$releaseNotesInput = Read-Host -Prompt "Enter release notes (default: $defaultReleaseNotes)"
+$releaseNotes = if ([string]::IsNullOrWhiteSpace($releaseNotesInput)) { $defaultReleaseNotes } else { $releaseNotesInput }
+
+# Determine the asset name from the file path
+$assetName = [System.IO.Path]::GetFileName($zipFilePath)
+Write-Host "The asset will be named: '$assetName' on GitHub."
+# --- End Configuration ---
+
+# Construct the base API URL for the repository
+$repositoryApiUrl = "https://api.github.com/repos/$owner/$repoName"
+
+# Set the common GitHub API headers
+# It's good practice to specify the API version.
+$commonHeaders = @{
+    "Authorization"        = "token $personalAccessToken"
+    "Accept"               = "application/vnd.github.v3+json"
+    "X-GitHub-Api-Version" = "2022-11-28"
+}
+
+# --- 1. Create a new release ---
+Write-Host "INFO: Creating new release '$releaseName' with tag '$tagName' for repository '$owner/$repoName'..."
+$releaseBody = @{
+    tag_name           = $tagName
+    name               = $releaseName
+    body               = $releaseNotes
+    draft              = $false # Set to $true if you want to create a draft release first
+    prerelease         = $false # Set to $true if this is a pre-release
+    generate_release_notes = $false # Set to $true to auto-generate release notes if your repo supports it
+} | ConvertTo-Json
+
+$releaseResponse = $null
+try {
+    $releaseResponse = Invoke-RestMethod -Uri "$repositoryApiUrl/releases" -Method Post -Headers $commonHeaders -Body $releaseBody -ContentType "application/json"
+    Write-Host "SUCCESS: Release '$($releaseResponse.name)' created successfully!"
+    Write-Host "Release ID: $($releaseResponse.id)"
+    Write-Host "Release URL: $($releaseResponse.html_url)"
+} catch {
+    Write-Error "ERROR: Failed to create release."
+    Write-Error "Status Code: $($_.Exception.Response.StatusCode)"
+    Write-Error "Status Description: $($_.Exception.Response.StatusDescription)"
+    $errorResponse = $_.Exception.Response.GetResponseStream()
+    $streamReader = New-Object System.IO.StreamReader($errorResponse)
+    $errorBody = $streamReader.ReadToEnd()
+    $streamReader.Close()
+    $errorResponse.Close()
+    Write-Error "Response Body: $errorBody"
+    exit 1 # Exit the script on failure
+}
+
+# Get the upload URL for the release asset
+# The upload_url from GitHub is a template: "https://uploads.github.com/repos/OWNER/REPO/releases/RELEASE_ID/assets{?name,label}"
+# We need to remove the template part "{?name,label}" and append our actual asset name.
+$uploadUrlBase = $releaseResponse.upload_url.Split('{')[0]
+$assetUploadUrl = "$($uploadUrlBase)?name=$([uri]::EscapeDataString($assetName))"
+# If you want to add a label, you can append it like so:
+# $assetLabel = "My Awesome Asset v1.0"
+# $assetUploadUrl = "$($uploadUrlBase)?name=$([uri]::EscapeDataString($assetName))&label=$([uri]::EscapeDataString($assetLabel))"
+
+Write-Host "INFO: Preparing to upload asset '$assetName' to release '$($releaseResponse.name)'..."
+
+# --- 2. Upload the zip file as a release asset ---
+# For uploading files, GitHub expects the raw file data in the body and
+# the Content-Type header set to the file's MIME type (e.g., "application/zip").
+
+$assetHeaders = @{
+    "Authorization"        = "token $personalAccessToken"
+    "Accept"               = "application/vnd.github.v3+json"
+    "X-GitHub-Api-Version" = "2022-11-28"
+    "Content-Type"         = "application/zip" # MIME type for ZIP files
+}
+
+try {
+    Write-Host "INFO: Uploading '$zipFilePath' to '$assetUploadUrl'..."
+    # Invoke-RestMethod with -InFile is efficient for sending files (PowerShell 3.0+)
+    $assetResponse = Invoke-RestMethod -Uri $assetUploadUrl -Method Post -Headers $assetHeaders -InFile $zipFilePath
+    
+    Write-Host "SUCCESS: Asset '$($assetResponse.name)' uploaded successfully!"
+    Write-Host "Asset ID: $($assetResponse.id)"
+    Write-Host "Asset Label: $($assetResponse.label)"
+    Write-Host "Asset Download URL: $($assetResponse.browser_download_url)"
+} catch {
+    Write-Error "ERROR: Failed to upload asset '$assetName'."
+    Write-Error "Status Code: $($_.Exception.Response.StatusCode)"
+    Write-Error "Status Description: $($_.Exception.Response.StatusDescription)"
+    $errorResponse = $_.Exception.Response.GetResponseStream()
+    $streamReader = New-Object System.IO.StreamReader($errorResponse)
+    $errorBody = $streamReader.ReadToEnd()
+    $streamReader.Close()
+    $errorResponse.Close()
+    Write-Error "Response Body: $errorBody"
+    
+    # Optional: You might want to delete the release if the asset upload fails
+    # Write-Warning "INFO: Asset upload failed. Consider manually deleting the release '$($releaseResponse.name)' or its tag '$tagName'."
+    # Invoke-RestMethod -Uri "$repositoryApiUrl/releases/$($releaseResponse.id)" -Method Delete -Headers $commonHeaders
+    # Invoke-RestMethod -Uri "$repositoryApiUrl/git/refs/tags/$tagName" -Method Delete -Headers $commonHeaders (more complex to ensure tag is gone)
+    exit 1 # Exit the script on failure
+}
+
+Write-Host "INFO: Script completed successfully. Release '$($releaseResponse.name)' and asset '$($assetResponse.name)' are live."
