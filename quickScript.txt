@@ -1,125 +1,49 @@
-Function GenerateAlertedNarrative(targetSheet As Worksheet, mappingSheet As Worksheet) As String
-    Dim lastRow As Long, i As Long
-    Dim mapLastRow As Long, k As Long
-    Dim alertColor As Long
-    Dim countAlerts As Long
-    Dim totalAmount As Double
-    Dim minAmount As Double, maxAmount As Double
-    Dim minDate As Date, maxDate As Date
+Sub CombineNameAndLocation()
+    Dim ws As Worksheet
+    Dim lastRow As Long
+    Dim i As Long
+    Dim outputRow As Long
+    Dim currentName As String
+    Dim currentLocation As String
+    Dim cellLabel As String
     
-    Dim transTypes As Object
-    Dim nameMap As Object
-    Dim rawType As String, cleanType As String
-    Dim currentDate As Date, currentAmount As Double
+    ' Set the worksheet to the one you are currently looking at
+    Set ws = ActiveSheet
     
-    ' Sorting Variables
-    Dim sortArr() As String
-    Dim idx As Long, i2 As Long, j2 As Long
-    Dim tempStr As String
-    Dim transTypeList As String
-    Dim typeKey As Variant
+    ' Find the last row of data in Column A
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
     
-    Set transTypes = CreateObject("Scripting.Dictionary")
-    Set nameMap = CreateObject("Scripting.Dictionary")
+    ' Set the starting row for your output (E16)
+    outputRow = 16
     
-    ' --- STEP 1: LOAD MAPPING ---
-    mapLastRow = mappingSheet.Cells(mappingSheet.Rows.Count, "A").End(xlUp).Row
-    For k = 1 To mapLastRow
-        rawType = Trim(mappingSheet.Cells(k, 1).Value)
-        cleanType = Trim(mappingSheet.Cells(k, 2).Value)
-        If rawType <> "" And Not nameMap.Exists(rawType) Then
-            nameMap.Add rawType, cleanType
+    ' Loop through every row in Column A
+    For i = 1 To lastRow
+        ' Get the label from Column A and trim extra spaces
+        cellLabel = Trim(ws.Cells(i, 1).Value)
+        
+        ' 1. Check if this row is the Customer's Name
+        ' We use InStr to be safe in case there are extra spaces or colons
+        If InStr(1, cellLabel, "Customer's Name", vbTextCompare) > 0 Then
+            currentName = Trim(ws.Cells(i, 2).Value)
+        
+        ' 2. Check if this row is the City/State
+        ElseIf InStr(1, cellLabel, "City/State", vbTextCompare) > 0 Then
+            currentLocation = Trim(ws.Cells(i, 2).Value)
         End If
-    Next k
-    
-    ' --- STEP 2: PROCESS ALERTS ---
-    alertColor = RGB(255, 235, 156)
-    countAlerts = 0
-    totalAmount = 0
-    minAmount = 9999999999# ' Max possible double value
-    maxAmount = 0
-    minDate = #12/31/9999#
-    maxDate = #1/1/1900#
-    
-    lastRow = targetSheet.Cells(targetSheet.Rows.Count, "A").End(xlUp).Row
-    
-    For i = 2 To lastRow
-        If targetSheet.Rows(i).Interior.Color = alertColor Or _
-           targetSheet.Cells(i, 1).Interior.Color = alertColor Then
+        
+        ' 3. If we have found BOTH a name and a location, print them
+        If currentName <> "" And currentLocation <> "" Then
+            ' Combine them with a space in the middle
+            ws.Range("E" & outputRow).Value = currentName & " " & currentLocation
             
-            currentDate = targetSheet.Cells(i, 1).Value
-            currentAmount = targetSheet.Cells(i, 2).Value
-            rawType = Trim(targetSheet.Cells(i, 3).Value)
+            ' Move the output target down one row for the next person
+            outputRow = outputRow + 1
             
-            ' Apply Name Mapping
-            If nameMap.Exists(rawType) Then
-                cleanType = nameMap(rawType)
-            Else
-                cleanType = rawType
-            End If
-            
-            ' Update Stats
-            countAlerts = countAlerts + 1
-            totalAmount = totalAmount + currentAmount
-            If currentDate < minDate Then minDate = currentDate
-            If currentDate > maxDate Then maxDate = currentDate
-            If currentAmount < minAmount Then minAmount = currentAmount
-            If currentAmount > maxAmount Then maxAmount = currentAmount
-            
-            ' Update Dictionary (Count occurrences now)
-            If transTypes.Exists(cleanType) Then
-                transTypes(cleanType) = transTypes(cleanType) + 1
-            Else
-                transTypes.Add cleanType, 1
-            End If
+            ' Clear the variables so we are ready for the next block of data
+            currentName = ""
+            currentLocation = ""
         End If
+        
     Next i
-    
-    If countAlerts = 0 Then
-        GenerateAlertedNarrative = ""
-        Exit Function
-    End If
-    
-    ' --- STEP 3: PLURALIZE AND SORT ---
-    ReDim sortArr(0 To transTypes.Count - 1)
-    idx = 0
-    
-    ' Loop through dictionary keys
-    For Each typeKey In transTypes.Keys
-        cleanType = typeKey
-        
-        ' Check count > 1 for pluralization
-        If transTypes(typeKey) > 1 Then
-            ' Only append "s" if it doesn't already end in s (avoid "Wire Transferss")
-            If LCase(Right(cleanType, 1)) <> "s" Then
-                cleanType = cleanType & "s"
-            End If
-        End If
-        
-        sortArr(idx) = cleanType
-        idx = idx + 1
-    Next typeKey
-    
-    ' Simple Bubble Sort (A-Z)
-    For i2 = LBound(sortArr) To UBound(sortArr) - 1
-        For j2 = i2 + 1 To UBound(sortArr)
-            If LCase(sortArr(i2)) > LCase(sortArr(j2)) Then
-                tempStr = sortArr(i2)
-                sortArr(i2) = sortArr(j2)
-                sortArr(j2) = tempStr
-            End If
-        Next j2
-    Next i2
-    
-    ' Join sorted array into string
-    transTypeList = Join(sortArr, ", ")
-    
-    ' --- STEP 4: BUILD NARRATIVE ---
-    GenerateAlertedNarrative = "The account(s) alerted for " & countAlerts & " total transactions consisting of " & _
-                        transTypeList & " conducted from " & Format(minDate, "mm/dd/yyyy") & " to " & _
-                        Format(maxDate, "mm/dd/yyyy") & " ranging from " & Format(minAmount, "$#,##0.00") & _
-                        " to " & Format(maxAmount, "$#,##0.00") & " totaling " & Format(totalAmount, "$#,##0.00") & "."
 
-    Set transTypes = Nothing
-    Set nameMap = Nothing
-End Function
+End Sub
