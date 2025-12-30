@@ -1,3 +1,89 @@
-reg delete "HKCU\Software\Classes\CLSID\{d93ed569-3b3e-4bff-8355-3c44f6a52bb5}" /f
-taskkill /F /IM explorer.exe
-start explorer.exe
+Function GenerateAlertedNarrative(GiftWS As Worksheet) As String
+    Dim ws As Worksheet
+    Dim lastRow As Long, i As Long
+    Dim alertColor As Long
+    Dim countAlerts As Long
+    Dim totalAmount As Double
+    Dim minAmount As Double, maxAmount As Double
+    Dim minDate As Date, maxDate As Date
+    Dim transTypes As Object
+    Dim transType As String
+    Dim transTypeKey As Variant
+    Dim transTypeList As String
+    Dim currentDate As Date
+    Dim currentAmount As Double
+    
+    ' Set the worksheet
+    Set ws = GiftWS
+    
+    ' Define the highlight color (RGB 255, 235, 156)
+    alertColor = RGB(255, 235, 156)
+    
+    ' Initialize variables
+    countAlerts = 0
+    totalAmount = 0
+    minAmount = 9999999999# ' Max possible double value
+    maxAmount = 0
+    minDate = #12/31/9999#
+    maxDate = #1/1/1900#
+    Set transTypes = CreateObject("Scripting.Dictionary")
+    
+    ' Find the last row of data (assuming Column A has data)
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    
+    ' Loop through rows to find highlighted transactions
+    For i = 2 To lastRow ' Assuming row 1 is headers
+        If ws.Rows(i).Interior.Color = alertColor Or _
+           ws.Cells(i, 1).Interior.Color = alertColor Then ' Checks row or specific cell
+            
+            ' Extract data (assuming col A=Date, B=Amount, C=Type)
+            ' Adjust column numbers (Cells(i, X)) if your columns differ
+            currentDate = ws.Cells(i, 1).Value
+            currentAmount = ws.Cells(i, 2).Value
+            transType = Trim(ws.Cells(i, 3).Value)
+            
+            ' Update Count and Total
+            countAlerts = countAlerts + 1
+            totalAmount = totalAmount + currentAmount
+            
+            ' Update Min/Max Date
+            If currentDate < minDate Then minDate = currentDate
+            If currentDate > maxDate Then maxDate = currentDate
+            
+            ' Update Min/Max Amount
+            If currentAmount < minAmount Then minAmount = currentAmount
+            If currentAmount > maxAmount Then maxAmount = currentAmount
+            
+            ' Add Transaction Type to Dictionary (for unique list)
+            If Not transTypes.Exists(transType) Then
+                transTypes.Add transType, 1
+            End If
+        End If
+    Next i
+    
+    ' Check if any alerts were found
+    If countAlerts = 0 Then
+        MsgBox "No highlighted rows found.", vbExclamation
+        Exit Function
+    End If
+    
+    ' Build the list of transaction types
+    For Each transTypeKey In transTypes.Keys
+        transTypeList = transTypeList & transTypeKey & ", "
+    Next transTypeKey
+    
+    ' Remove trailing comma and space
+    If Len(transTypeList) > 2 Then
+        transTypeList = Left(transTypeList, Len(transTypeList) - 2)
+    End If
+    
+    ' Construct the narrative string
+    GenerateAlertedNarrative = "The account(s) alerted for " & countAlerts & " total transactions consisting of " & _
+                transTypeList & " conducted from " & Format(minDate, "mm/dd/yyyy") & " to " & _
+                Format(maxDate, "mm/dd/yyyy") & " ranging from " & Format(minAmount, "$#,##0.00") & _
+                " to " & Format(maxAmount, "$#,##0.00") & " totaling " & Format(totalAmount, "$#,##0.00") & "."
+    
+    ' Clean up
+    Set transTypes = Nothing
+    
+End Function
