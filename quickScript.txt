@@ -1,89 +1,100 @@
-Function GenerateAlertedNarrative(GiftWS As Worksheet) As String
-    Dim ws As Worksheet
+Function GenerateAlertedNarrative(targetSheet As Worksheet, mappingSheet As Worksheet) As String
     Dim lastRow As Long, i As Long
+    Dim mapLastRow As Long, k As Long
     Dim alertColor As Long
     Dim countAlerts As Long
     Dim totalAmount As Double
     Dim minAmount As Double, maxAmount As Double
     Dim minDate As Date, maxDate As Date
-    Dim transTypes As Object
-    Dim transType As String
+    
+    ' Dictionaries
+    Dim transTypes As Object ' Holds the final list for the narrative
+    Dim nameMap As Object    ' Holds the mapping rules (A -> B)
+    
+    Dim rawType As String
+    Dim cleanType As String
     Dim transTypeKey As Variant
     Dim transTypeList As String
-    Dim currentDate As Date
-    Dim currentAmount As Double
+    Dim currentDate As Date, currentAmount As Double
     
-    ' Set the worksheet
-    Set ws = GiftWS
     
-    ' Define the highlight color (RGB 255, 235, 156)
+    ' Initialize Dictionaries
+    Set transTypes = CreateObject("Scripting.Dictionary")
+    Set nameMap = CreateObject("Scripting.Dictionary")
+    
+    ' --- STEP 1: LOAD THE MAPPING DATA ---
+    ' Assumes Column A is Original, Column B is Proper Name
+    mapLastRow = mappingSheet.Cells(mappingSheet.Rows.Count, "A").End(xlUp).Row
+    
+    For k = 1 To mapLastRow ' Start at 1 or 2 depending on if you have headers
+        rawType = Trim(mappingSheet.Cells(k, 1).Value)
+        cleanType = Trim(mappingSheet.Cells(k, 2).Value)
+        
+        ' Add to dictionary if not empty and not already there
+        If rawType <> "" And Not nameMap.Exists(rawType) Then
+            nameMap.Add rawType, cleanType
+        End If
+    Next k
+    
+    ' --- STEP 2: PROCESS THE ALERTS ---
     alertColor = RGB(255, 235, 156)
-    
-    ' Initialize variables
     countAlerts = 0
     totalAmount = 0
     minAmount = 9999999999# ' Max possible double value
     maxAmount = 0
     minDate = #12/31/9999#
     maxDate = #1/1/1900#
-    Set transTypes = CreateObject("Scripting.Dictionary")
     
-    ' Find the last row of data (assuming Column A has data)
-    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    lastRow = targetSheet.Cells(targetSheet.Rows.Count, "A").End(xlUp).Row
     
-    ' Loop through rows to find highlighted transactions
-    For i = 2 To lastRow ' Assuming row 1 is headers
-        If ws.Rows(i).Interior.Color = alertColor Or _
-           ws.Cells(i, 1).Interior.Color = alertColor Then ' Checks row or specific cell
+    For i = 2 To lastRow
+        If targetSheet.Rows(i).Interior.Color = alertColor Or _
+           targetSheet.Cells(i, 1).Interior.Color = alertColor Then
             
-            ' Extract data (assuming col A=Date, B=Amount, C=Type)
-            ' Adjust column numbers (Cells(i, X)) if your columns differ
-            currentDate = ws.Cells(i, 1).Value
-            currentAmount = ws.Cells(i, 2).Value
-            transType = Trim(ws.Cells(i, 3).Value)
+            ' Extract Data
+            currentDate = targetSheet.Cells(i, 1).Value
+            currentAmount = targetSheet.Cells(i, 2).Value
+            rawType = Trim(targetSheet.Cells(i, 3).Value)
             
-            ' Update Count and Total
+            ' CHECK MAPPING: Swap name if it exists in our map, otherwise keep original
+            If nameMap.Exists(rawType) Then
+                cleanType = nameMap(rawType)
+            Else
+                cleanType = rawType ' Fallback: use the original text
+            End If
+            
+            ' Update Stats
             countAlerts = countAlerts + 1
             totalAmount = totalAmount + currentAmount
-            
-            ' Update Min/Max Date
             If currentDate < minDate Then minDate = currentDate
             If currentDate > maxDate Then maxDate = currentDate
-            
-            ' Update Min/Max Amount
             If currentAmount < minAmount Then minAmount = currentAmount
             If currentAmount > maxAmount Then maxAmount = currentAmount
             
-            ' Add Transaction Type to Dictionary (for unique list)
-            If Not transTypes.Exists(transType) Then
-                transTypes.Add transType, 1
-            End If
+            ' Add the CLEAN name to the unique list
+            If Not transTypes.Exists(cleanType) Then transTypes.Add cleanType, 1
         End If
     Next i
     
-    ' Check if any alerts were found
+    ' Return empty if no data
     If countAlerts = 0 Then
-        MsgBox "No highlighted rows found.", vbExclamation
+        GetAlertNarrative = ""
         Exit Function
     End If
     
-    ' Build the list of transaction types
+    ' Build List string
     For Each transTypeKey In transTypes.Keys
         transTypeList = transTypeList & transTypeKey & ", "
     Next transTypeKey
+    If Len(transTypeList) > 2 Then transTypeList = Left(transTypeList, Len(transTypeList) - 2)
     
-    ' Remove trailing comma and space
-    If Len(transTypeList) > 2 Then
-        transTypeList = Left(transTypeList, Len(transTypeList) - 2)
-    End If
-    
-    ' Construct the narrative string
-    GenerateAlertedNarrative = "The account(s) alerted for " & countAlerts & " total transactions consisting of " & _
-                transTypeList & " conducted from " & Format(minDate, "mm/dd/yyyy") & " to " & _
-                Format(maxDate, "mm/dd/yyyy") & " ranging from " & Format(minAmount, "$#,##0.00") & _
-                " to " & Format(maxAmount, "$#,##0.00") & " totaling " & Format(totalAmount, "$#,##0.00") & "."
-    
-    ' Clean up
+    ' Build Final Narrative
+    GetAlertNarrative = "The account(s) alerted for " & countAlerts & " total transactions consisting of " & _
+                        transTypeList & " conducted from " & Format(minDate, "mm/dd/yyyy") & " to " & _
+                        Format(maxDate, "mm/dd/yyyy") & " ranging from " & Format(minAmount, "$#,##0.00") & _
+                        " to " & Format(maxAmount, "$#,##0.00") & " totaling " & Format(totalAmount, "$#,##0.00") & "."
+
+    ' Cleanup
     Set transTypes = Nothing
-    
+    Set nameMap = Nothing
 End Function
